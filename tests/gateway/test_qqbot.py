@@ -229,6 +229,18 @@ class TestStripAtMention:
         result = self._fn("@BotUser hello there")
         assert result == "hello there"
 
+    def test_removes_angle_bracket_openid_mention(self):
+        # Official QQ bot group events prefix the mention as "<@OPENID> text"
+        result = self._fn("<@6E889A02D5F9324A1E8F32E51F66ADDD> hello there")
+        assert result == "hello there"
+
+    def test_removes_angle_bracket_bang_mention(self):
+        result = self._fn("<@!1234567890> 你好")
+        assert result == "你好"
+
+    def test_keeps_plain_text(self):
+        assert self._fn("no mention here") == "no mention here"
+
 
 # ---------------------------------------------------------------------------
 # _is_dm_allowed
@@ -330,6 +342,47 @@ class TestDispatchPayload:
         adapter._dispatch_payload({"op": 99, "d": {}})
         # last_seq should remain None
         assert adapter._last_seq is None
+
+    @pytest.mark.asyncio
+    async def test_group_message_create_event_is_dispatched(self):
+        """QQ delivers group events as GROUP_MESSAGE_CREATE; must not be dropped."""
+        adapter = self._make_adapter(app_id="a", client_secret="b")
+        seen = []
+
+        async def fake_on_message(event_type, d):
+            seen.append(event_type)
+
+        adapter._on_message = fake_on_message
+        adapter._dispatch_payload({
+            "op": 0,
+            "t": "GROUP_MESSAGE_CREATE",
+            "s": 1,
+            "d": {"id": "msg1", "content": "<@BOT> hi"},
+        })
+        # let the created task run
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert seen == ["GROUP_MESSAGE_CREATE"]
+
+    @pytest.mark.asyncio
+    async def test_group_at_message_create_still_dispatched(self):
+        """Legacy event name must keep working."""
+        adapter = self._make_adapter(app_id="a", client_secret="b")
+        seen = []
+
+        async def fake_on_message(event_type, d):
+            seen.append(event_type)
+
+        adapter._on_message = fake_on_message
+        adapter._dispatch_payload({
+            "op": 0,
+            "t": "GROUP_AT_MESSAGE_CREATE",
+            "s": 1,
+            "d": {"id": "msg2", "content": "@Bot hi"},
+        })
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert seen == ["GROUP_AT_MESSAGE_CREATE"]
 
 
     def test_seq_increments(self):
